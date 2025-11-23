@@ -12,18 +12,17 @@ import (
 	"github.com/haniscreator/agnos-search/internal/repository"
 )
 
-// mockReader satisfies PatientReader
-type mockReader struct {
+// mockService satisfies PatientService
+type mockService struct {
 	out *repository.Patient
 	err error
 }
 
-func (m *mockReader) GetByIdentifier(_ context.Context, identifier string) (*repository.Patient, error) {
-	// simple behavior: return configured out
+func (m *mockService) Get(_ context.Context, identifier string) (*repository.Patient, error) {
 	return m.out, m.err
 }
 
-func setupRouterWithMock(m PatientReader) *gin.Engine {
+func setupRouterWithMock(m PatientService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	RegisterPatientRoutes(r, m)
@@ -31,7 +30,7 @@ func setupRouterWithMock(m PatientReader) *gin.Engine {
 }
 
 func TestGetPatient_Found(t *testing.T) {
-	mock := &mockReader{
+	mock := &mockService{
 		out: &repository.Patient{
 			ID:           "uuid-1",
 			PatientHN:    "HN-123",
@@ -61,7 +60,7 @@ func TestGetPatient_Found(t *testing.T) {
 }
 
 func TestGetPatient_NotFound(t *testing.T) {
-	mock := &mockReader{out: nil, err: nil}
+	mock := &mockService{out: nil, err: nil}
 	r := setupRouterWithMock(mock)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/patient/missing", nil)
@@ -72,7 +71,7 @@ func TestGetPatient_NotFound(t *testing.T) {
 }
 
 func TestGetPatient_Error(t *testing.T) {
-	mock := &mockReader{out: nil, err: errExample()}
+	mock := &mockService{out: nil, err: errExample()}
 	r := setupRouterWithMock(mock)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/patient/any", nil)
@@ -82,7 +81,7 @@ func TestGetPatient_Error(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
-// small helpers
+// helpers
 func strptr(s string) *string { return &s }
 func errExample() error       { return &customErr{"boom"} }
 

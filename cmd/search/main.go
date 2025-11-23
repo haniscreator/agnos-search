@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/haniscreator/agnos-search/internal/adapter"
 	"github.com/haniscreator/agnos-search/internal/db"
 	"github.com/haniscreator/agnos-search/internal/handler"
 	"github.com/haniscreator/agnos-search/internal/repository"
+	"github.com/haniscreator/agnos-search/internal/service"
 )
 
 func main() {
@@ -20,18 +23,32 @@ func main() {
 	r.GET("/health", healthHandler)
 	r.GET("/v1/search", searchHandler)
 
-	// try to create DB pool and register DB-backed routes
+	// Try to create DB pool and register DB-backed routes + adapter-backed service
 	ctx := context.Background()
 	pool, err := db.NewPool(ctx)
 	if err != nil {
-		// If DB is not available in local dev, log and register a stub reader
-		log.Printf("warning: could not create db pool: %v; patient routes will return 500", err)
-		stub := &dbUnavailableReader{err: fmt.Errorf("database not available")}
+		log.Printf("warning: could not create db pool: %v; patient routes will return 500 (DB unavailable)", err)
+		stub := &dbUnavailableService{err: fmt.Errorf("database not available")}
 		handler.RegisterPatientRoutes(r, stub)
 	} else {
-		// Use real repo when DB is available
 		repo := repository.NewPatientRepo(pool)
-		handler.RegisterPatientRoutes(r, repo)
+
+		// create adapter (base URL from env or default)
+		base := os.Getenv("HOSPITAL_BASE")
+		if base == "" {
+			base = "http://hospital-a.api.co.th"
+		}
+		// short timeout; you can tune via env
+		adapterClient, aErr := adapter.NewHospitalAdapter(base, 2*time.Second)
+		if aErr != nil {
+			// If adapter creation fails, still register stub service
+			log.Printf("warning: could not create adapter: %v; patient routes will return 500", aErr)
+			stub := &dbUnavailableService{err: fmt.Errorf("hospital adapter not available")}
+			handler.RegisterPatientRoutes(r, stub)
+		} else {
+			svc := service.NewPatientService(repo, adapterClient)
+			handler.RegisterPatientRoutes(r, svc)
+		}
 	}
 
 	port := os.Getenv("PORT")
@@ -53,20 +70,15 @@ func searchHandler(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "q is required"})
 		return
 	}
-
-	results := []gin.H{
-		{"type": "patient", "id": "p_1", "name": "Demo Patient"},
-	}
+	results := []gin.H{{"type": "patient", "id": "p_1", "name": "Demo Patient"}}
 	c.JSON(200, gin.H{"query": q, "results": results})
 }
 
-// dbUnavailableReader is a small stub that implements the handler.PatientReader
-// interface so the route exists even if the DB connection failed.
-type dbUnavailableReader struct {
+// dbUnavailableService returns errors when DB or adapter not available.
+type dbUnavailableService struct {
 	err error
 }
 
-// GetByIdentifier returns an internal error indicating DB is not available.
-func (s *dbUnavailableReader) GetByIdentifier(_ context.Context, _ string) (*repository.Patient, error) {
+func (s *dbUnavailableService) Get(_ context.Context, _ string) (*repository.Patient, error) {
 	return nil, s.err
 }

@@ -8,13 +8,13 @@ import (
 	"github.com/haniscreator/agnos-search/internal/repository"
 )
 
-// PatientReader is the minimal interface the handler needs (easy to mock in tests)
-type PatientReader interface {
-	GetByIdentifier(ctx context.Context, identifier string) (*repository.Patient, error)
+// PatientService is the minimal service interface the handler needs.
+type PatientService interface {
+	Get(ctx context.Context, identifier string) (*repository.Patient, error)
 }
 
 // RegisterPatientRoutes attaches patient routes to the provided Gin engine.
-func RegisterPatientRoutes(r *gin.Engine, reader PatientReader) {
+func RegisterPatientRoutes(r *gin.Engine, svc PatientService) {
 	r.GET("/v1/patient/:id", func(c *gin.Context) {
 		id := c.Param("id")
 		if id == "" {
@@ -22,7 +22,7 @@ func RegisterPatientRoutes(r *gin.Engine, reader PatientReader) {
 			return
 		}
 
-		p, err := reader.GetByIdentifier(c.Request.Context(), id)
+		p, err := svc.Get(c.Request.Context(), id)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal"})
 			return
