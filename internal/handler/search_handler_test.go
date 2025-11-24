@@ -52,7 +52,7 @@ func TestSearchHandler_ReturnsResults(t *testing.T) {
 	})
 
 	// Register routes AFTER middleware so handler sees hospital_id
-	RegisterPatientRoutes(r, mock)
+	RegisterPatientRoutes(r, mock, nil)
 
 	// Build request
 	body := `{"national_id":"N-1","limit":10,"offset":0}`

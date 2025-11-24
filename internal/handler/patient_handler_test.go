@@ -28,11 +28,11 @@ func (m *mockService) Search(_ context.Context, hospitalID string, filters repos
 	return m.sout, m.total, m.err
 }
 
+// setupRouterWithMock returns a new Gin engine for tests.
+// It does NOT register routes so tests can set middleware before registration.
 func setupRouterWithMock(m PatientService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	// for tests we do not need middleware; RegisterPatientRoutes accepts Engine
-	RegisterPatientRoutes(r, m)
 	return r
 }
 
@@ -52,10 +52,20 @@ func TestGetPatient_Found(t *testing.T) {
 			PhoneNumber:  "0812345678",
 			Email:        "a@example.com",
 			Gender:       "M",
+			HospitalID:   "HIS-1",
 		},
 		err: nil,
 	}
 	r := setupRouterWithMock(mock)
+
+	// set middleware that simulates the JWT middleware (hospital_id present)
+	r.Use(func(c *gin.Context) {
+		c.Set("hospital_id", "HIS-1")
+		c.Next()
+	})
+
+	// Register routes AFTER middleware so hospital_id is visible to handlers.
+	RegisterPatientRoutes(r, mock, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/patient/N-123", nil)
 	w := httptest.NewRecorder()
@@ -70,6 +80,14 @@ func TestGetPatient_NotFound(t *testing.T) {
 	mock := &mockService{out: nil, err: nil}
 	r := setupRouterWithMock(mock)
 
+	// middleware present but not strictly necessary for not found case
+	r.Use(func(c *gin.Context) {
+		c.Set("hospital_id", "HIS-1")
+		c.Next()
+	})
+
+	RegisterPatientRoutes(r, mock, nil)
+
 	req := httptest.NewRequest(http.MethodGet, "/v1/patient/missing", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -81,6 +99,13 @@ func TestGetPatient_Error(t *testing.T) {
 	mock := &mockService{out: nil, err: errExample()}
 	r := setupRouterWithMock(mock)
 
+	r.Use(func(c *gin.Context) {
+		c.Set("hospital_id", "HIS-1")
+		c.Next()
+	})
+
+	RegisterPatientRoutes(r, mock, nil)
+
 	req := httptest.NewRequest(http.MethodGet, "/v1/patient/any", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -88,7 +113,7 @@ func TestGetPatient_Error(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
-// small helpers
+// helpers
 func strptr(s string) *string { return &s }
 func errExample() error       { return &customErr{"boom"} }
 
