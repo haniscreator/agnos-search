@@ -9,6 +9,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /bin/search ./cmd/search
 # final
 FROM alpine:3.18
 RUN apk add --no-cache ca-certificates
-COPY --from=builder /bin/search /bin/search
+WORKDIR /app
+COPY --from=builder /bin/search ./search
 EXPOSE 8080
-ENTRYPOINT ["/bin/search"]
+ENTRYPOINT ["./search"]

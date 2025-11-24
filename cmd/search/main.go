@@ -66,7 +66,9 @@ func main() {
 		} else {
 			patientSvc := service.NewPatientService(patientRepo, adapterClient)
 			jwtSecret := os.Getenv("JWT_SECRET")
-
+			if jwtSecret == "" {
+				log.Fatal("FATAL: JWT_SECRET is missing. Set it in .env or docker-compose!")
+			}
 			authGroup := r.Group("/")
 			authGroup.Use(middleware.AuthMiddleware(jwtSecret))
 

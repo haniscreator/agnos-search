@@ -31,7 +31,8 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - .env:/.env:ro  
+      - .env:/app/.env:ro
+
 
 volumes:
   pgdata:
