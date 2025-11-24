@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// Tests for PatientRepo (GetByID, GetByIdentifier, Create)
+
 func TestGetByID_Found(t *testing.T) {
 	mock, err := pgxmock.NewPool()
 	assert.NoError(t, err)
@@ -23,12 +25,12 @@ func TestGetByID_Found(t *testing.T) {
 		"id", "patient_hn", "national_id", "passport_id",
 		"first_name_th", "middle_name_th", "last_name_th",
 		"first_name_en", "middle_name_en", "last_name_en",
-		"date_of_birth", "phone_number", "email", "gender", "raw_json",
+		"date_of_birth", "phone_number", "email", "gender", "raw_json", "hospital_id",
 	}).AddRow(
 		"p1", "HN-1", "N-123", "P-1",
 		"สมชาย", "", "ใจดี",
 		"Somchai", "", "Jaidee",
-		dob, "0812345678", "a@example.com", "M", []byte(`{"source":"test"}`),
+		dob, "0812345678", "a@example.com", "M", []byte(`{"source":"test"}`), "HIS-1",
 	)
 
 	mock.ExpectQuery(`SELECT id, patient_hn, national_id, passport_id,`).
@@ -47,6 +49,8 @@ func TestGetByID_Found(t *testing.T) {
 	if assert.NotNil(t, p.DateOfBirth) {
 		assert.Equal(t, "1990-01-01", *p.DateOfBirth)
 	}
+	// check hospital id was scanned
+	assert.Equal(t, "HIS-1", p.HospitalID)
 
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -62,7 +66,7 @@ func TestGetByID_NotFound(t *testing.T) {
 			"id", "patient_hn", "national_id", "passport_id",
 			"first_name_th", "middle_name_th", "last_name_th",
 			"first_name_en", "middle_name_en", "last_name_en",
-			"date_of_birth", "phone_number", "email", "gender", "raw_json",
+			"date_of_birth", "phone_number", "email", "gender", "raw_json", "hospital_id",
 		})) // zero rows
 
 	repo := NewPatientRepo(mock)
@@ -79,14 +83,14 @@ func TestCreate_Success(t *testing.T) {
 	assert.NoError(t, err)
 	defer mock.Close()
 
-	// Expect Exec for INSERT with 15 args. For date_of_birth we expect a typed nil (*string)(nil)
+	// Expect Exec for INSERT with 16 args. For date_of_birth we expect a typed nil (*string)(nil)
 	mock.ExpectExec(`INSERT INTO patients \(`).
 		WithArgs(
 			"p2", "HN-2", "N-456", "P-2",
 			"JaneTH", "MiddTH", "LastTH",
 			"Jane", "MiddEN", "LastEN",
 			(*string)(nil), // typed nil matches actual *string(nil) passed by repo.Create
-			"0999", "jane@example.com", "F", []byte(`{"k":"v"}`),
+			"0999", "jane@example.com", "F", []byte(`{"k":"v"}`), "HIS-1",
 		).
 		WillReturnResult(pgxmock.NewResult("INSERT", 1))
 
@@ -108,11 +112,9 @@ func TestCreate_Success(t *testing.T) {
 		Email:        "jane@example.com",
 		Gender:       "F",
 		RawJSON:      []byte(`{"k":"v"}`),
+		HospitalID:   "HIS-1", // ensure hospital_id passed as last arg
 	})
 	assert.NoError(t, err)
 
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
-
-// helper reused in tests (kept for compatibility)
-func strptr(s string) *string { return &s }

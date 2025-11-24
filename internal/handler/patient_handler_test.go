@@ -12,19 +12,26 @@ import (
 	"github.com/haniscreator/agnos-search/internal/repository"
 )
 
-// mockService satisfies PatientService
+// mockService satisfies PatientService (Get + Search)
 type mockService struct {
-	out *repository.Patient
-	err error
+	out   *repository.Patient
+	sout  []*repository.Patient
+	total int
+	err   error
 }
 
 func (m *mockService) Get(_ context.Context, identifier string) (*repository.Patient, error) {
 	return m.out, m.err
 }
 
+func (m *mockService) Search(_ context.Context, hospitalID string, filters repository.PatientFilters, limit, offset int) ([]*repository.Patient, int, error) {
+	return m.sout, m.total, m.err
+}
+
 func setupRouterWithMock(m PatientService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	// for tests we do not need middleware; RegisterPatientRoutes accepts Engine
 	RegisterPatientRoutes(r, m)
 	return r
 }
@@ -81,7 +88,7 @@ func TestGetPatient_Error(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
-// helpers
+// small helpers
 func strptr(s string) *string { return &s }
 func errExample() error       { return &customErr{"boom"} }
 

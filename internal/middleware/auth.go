@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"strings"
@@ -56,14 +57,22 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		if sub, ok := claims["sub"].(string); ok {
 			c.Set("staff_id", sub)
 		}
+		var hospitalID string
 		if hid, ok := claims["hospital_id"].(string); ok {
 			c.Set("hospital_id", hid)
+			hospitalID = hid
 		}
 		if uname, ok := claims["username"].(string); ok {
 			c.Set("username", uname)
 		}
 		if role, ok := claims["role"].(string); ok {
 			c.Set("role", role)
+		}
+
+		// ALSO put hospital_id into the standard request context so services can read it.
+		if hospitalID != "" {
+			ctx := context.WithValue(c.Request.Context(), "hospital_id", hospitalID)
+			c.Request = c.Request.WithContext(ctx)
 		}
 
 		c.Next()

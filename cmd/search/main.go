@@ -97,10 +97,15 @@ func registerStubs(r *gin.Engine) {
 }
 
 // dbUnavailableService returns errors when DB or adapter not available.
+// dbUnavailableService returns errors when DB or adapter not available.
 type dbUnavailableService struct {
 	err error
 }
 
 func (s *dbUnavailableService) Get(_ context.Context, _ string) (*repository.Patient, error) {
 	return nil, s.err
+}
+
+func (s *dbUnavailableService) Search(_ context.Context, _ string, _ repository.PatientFilters, _ int, _ int) ([]*repository.Patient, int, error) {
+	return nil, 0, s.err
 }
