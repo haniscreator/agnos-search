@@ -19,7 +19,6 @@ docker exec -i agnos_postgres psql -U agnos -d agnos < migrations/004_create_sea
 
 # 3) ensure test patient exists (upsert)
 echo "3/6: insert or upsert test patient"
-# using a simple upsert: try inserting; if exists, ignore
 docker exec -i agnos_postgres psql -U agnos -d agnos -c "
 INSERT INTO patients (id, patient_hn, national_id, passport_id, first_name_th, last_name_th, first_name_en, last_name_en, date_of_birth, phone_number, email, gender, raw_json, hospital_id)
 VALUES ('11111111-1111-1111-1111-111111111111','HN-001','N-1234567890','P-ABC1234','สมชาย','ใจดี','Somchai','Jaidee','1990-01-01','0812345678','somchai@example.com','M','{\"note\":\"seeded for tests\"}','HIS-1')
@@ -74,21 +73,24 @@ fi
 
 echo "search returned expected patient id: $FIRST_ID"
 
-# verify audit row exists for this staff
+# verify audit row exists for this staff (strictly by staff)
 echo "verifying audit row..."
-AUDIT_COUNT=$(docker exec -i agnos_postgres psql -U agnos -d agnos -t -c \
-  "SELECT count(1) FROM search_events WHERE hospital_id='HIS-1';" | tr -d '[:space:]' || echo "0")
-
-# normalize empty -> 0
-if [[ -z "$AUDIT_COUNT" ]]; then
-  AUDIT_COUNT=0
+# get staff id for itest_staff
+STAFF_ID=$(docker exec -i agnos_postgres psql -U agnos -d agnos -t -c "SELECT id FROM staffs WHERE username='itest_staff' AND hospital_id='HIS-1';" | tr -d '[:space:]' || true)
+if [[ -z "$STAFF_ID" ]]; then
+  echo "ERROR: itest_staff not found in staffs table; aborting audit assertion"
+  exit 6
 fi
 
-# Accept if there is at least 1 audit record
-if [[ "$AUDIT_COUNT" -lt 1 ]]; then
-  echo "WARNING: no audit rows found for HIS-1 (count=$AUDIT_COUNT)"
-else
-  echo "audit check: ok (count=$AUDIT_COUNT)"
+AUDIT_COUNT_BY_STAFF=$(docker exec -i agnos_postgres psql -U agnos -d agnos -t -c "SELECT count(1) FROM search_events WHERE hospital_id='HIS-1' AND staff_id='${STAFF_ID}';" | tr -d '[:space:]' || echo "0")
+if [[ -z "$AUDIT_COUNT_BY_STAFF" ]]; then
+  AUDIT_COUNT_BY_STAFF=0
 fi
 
+if [[ "$AUDIT_COUNT_BY_STAFF" -lt 1 ]]; then
+  echo "ERROR: audit row for itest_staff not found (count=$AUDIT_COUNT_BY_STAFF)"
+  exit 7
+fi
+
+echo "audit check: ok (by staff count=$AUDIT_COUNT_BY_STAFF)"
 echo "=== Integration test: SUCCESS ==="
