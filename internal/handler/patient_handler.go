@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -101,7 +102,10 @@ func RegisterPatientRoutes(r gin.IRoutes, svc PatientService, analytics reposito
 
 		results, total, err := svc.Search(c.Request.Context(), hid, f, req.Limit, req.Offset)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal"})
+			// debug: log and return the underlying error so we can see what's wrong.
+			// Remove the `detail` field before committing/merging — it's for local debugging only.
+			log.Printf("patient search error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal", "detail": err.Error()})
 			return
 		}
 

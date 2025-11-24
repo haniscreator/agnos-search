@@ -35,6 +35,7 @@ func main() {
 		// repositories
 		staffRepo := repository.NewStaffRepo(pool)
 		patientRepo := repository.NewPatientRepo(pool)
+		analyticsRepo := repository.NewAnalyticsRepo(pool)
 
 		// auth service
 		authSvc := service.NewAuthService(staffRepo)
@@ -51,13 +52,13 @@ func main() {
 			log.Printf("warning: could not create adapter: %v; patient routes will use stub", aErr)
 			// still register patient route with stub service
 			stub := &dbUnavailableService{err: fmt.Errorf("hospital adapter not available")}
-			handler.RegisterPatientRoutes(r, stub, nil)
+			handler.RegisterPatientRoutes(r, stub, analyticsRepo)
 		} else {
 			patientSvc := service.NewPatientService(patientRepo, adapterClient)
 			jwtSecret := os.Getenv("JWT_SECRET")
 			authGroup := r.Group("/")
 			authGroup.Use(middleware.AuthMiddleware(jwtSecret))
-			handler.RegisterPatientRoutes(authGroup, patientSvc, nil)
+			handler.RegisterPatientRoutes(authGroup, patientSvc, analyticsRepo)
 		}
 	}
 

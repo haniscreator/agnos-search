@@ -258,12 +258,19 @@ func (r *PatientRepo) SearchPatients(ctx context.Context, hospitalID string, f P
 		return nil, 0, err
 	}
 
-	// Select query - append limit/offset parameters
-	argsForSelect := append([]any(nil), args...)
+	// Prepare args for SELECT: original args followed by limit and offset
+	argsForSelect := make([]any, 0, len(args)+2)
+	argsForSelect = append(argsForSelect, args...)
 	argsForSelect = append(argsForSelect, limit, offset)
-	limitPos := len(argsForSelect) - 1
-	offsetPos := len(argsForSelect)
-	selectQuery := "SELECT id, patient_hn, national_id, passport_id, first_name_th, middle_name_th, last_name_th, first_name_en, middle_name_en, last_name_en, date_of_birth, phone_number, email, gender, raw_json FROM patients WHERE " + whereClause + fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", limitPos+1, offsetPos+1)
+
+	// placeholders for limit/offset are the next positions after original args
+	limitPos := len(args) + 1  // e.g. if args had 2 items, limit is $3
+	offsetPos := len(args) + 2 // offset is $4
+
+	selectQuery := fmt.Sprintf(
+		"SELECT id, patient_hn, national_id, passport_id, first_name_th, middle_name_th, last_name_th, first_name_en, middle_name_en, last_name_en, date_of_birth, phone_number, email, gender, raw_json FROM patients WHERE %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d",
+		whereClause, limitPos, offsetPos,
+	)
 
 	rows, err := r.pool.Query(ctx, selectQuery, argsForSelect...)
 	if err != nil {
