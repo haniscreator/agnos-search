@@ -19,38 +19,45 @@ import (
 func main() {
 	r := gin.Default()
 
-	// Always register basic endpoints
+	// Basic endpoints
 	r.GET("/health", healthHandler)
 	r.GET("/v1/search", searchHandler)
 
-	// Try to create DB pool and register DB-backed routes + adapter-backed service
+	// Create DB pool
 	ctx := context.Background()
 	pool, err := db.NewPool(ctx)
 	if err != nil {
-		log.Printf("warning: could not create db pool: %v; patient routes will return 500 (DB unavailable)", err)
-		stub := &dbUnavailableService{err: fmt.Errorf("database not available")}
-		handler.RegisterPatientRoutes(r, stub)
+		log.Printf("warning: could not create db pool: %v; some routes will return 500", err)
+		// register routes with stubs that return 500 for DB-dependent endpoints
+		registerStubs(r)
 	} else {
-		repo := repository.NewPatientRepo(pool)
+		// repositories
+		staffRepo := repository.NewStaffRepo(pool)
+		patientRepo := repository.NewPatientRepo(pool)
 
-		// create adapter (base URL from env or default)
+		// auth service
+		authSvc := service.NewAuthService(staffRepo)
+		// register auth routes
+		handler.RegisterAuthRoutes(r, authSvc)
+
+		// adapter + patient service (reuse existing wiring)
 		base := os.Getenv("HOSPITAL_BASE")
 		if base == "" {
 			base = "http://hospital-a.api.co.th"
 		}
-		// short timeout; you can tune via env
 		adapterClient, aErr := adapter.NewHospitalAdapter(base, 2*time.Second)
 		if aErr != nil {
-			// If adapter creation fails, still register stub service
-			log.Printf("warning: could not create adapter: %v; patient routes will return 500", aErr)
+			log.Printf("warning: could not create adapter: %v; patient routes will use stub", aErr)
+			// still register patient route with stub service
 			stub := &dbUnavailableService{err: fmt.Errorf("hospital adapter not available")}
 			handler.RegisterPatientRoutes(r, stub)
 		} else {
-			svc := service.NewPatientService(repo, adapterClient)
-			handler.RegisterPatientRoutes(r, svc)
+			patientSvc := service.NewPatientService(patientRepo, adapterClient)
+			handler.RegisterPatientRoutes(r, patientSvc)
 		}
 	}
 
+	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -72,6 +79,17 @@ func searchHandler(c *gin.Context) {
 	}
 	results := []gin.H{{"type": "patient", "id": "p_1", "name": "Demo Patient"}}
 	c.JSON(200, gin.H{"query": q, "results": results})
+}
+
+func registerStubs(r *gin.Engine) {
+	// simple stub endpoints that respond 500 for DB dependent routes
+	r.POST("/staff/create", func(c *gin.Context) {
+		c.JSON(500, gin.H{"error": "database not available"})
+	})
+	r.POST("/staff/login", func(c *gin.Context) {
+		c.JSON(500, gin.H{"error": "database not available"})
+	})
+	// keep patient route registered earlier in other code
 }
 
 // dbUnavailableService returns errors when DB or adapter not available.
