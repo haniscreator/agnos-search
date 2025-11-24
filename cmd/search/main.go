@@ -8,16 +8,29 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-
 	"github.com/haniscreator/agnos-search/internal/adapter"
 	"github.com/haniscreator/agnos-search/internal/db"
 	"github.com/haniscreator/agnos-search/internal/handler"
 	"github.com/haniscreator/agnos-search/internal/middleware"
 	"github.com/haniscreator/agnos-search/internal/repository"
 	"github.com/haniscreator/agnos-search/internal/service"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+
+	// -------------------------------
+	// Load .env (ignore errors if file is missing)
+	// -------------------------------
+	godotenv.Load()
+	if err := godotenv.Load(); err == nil {
+		if os.Getenv("JWT_SECRET") != "" {
+			log.Println("Loaded environment .env (JWT_SECRET detected)")
+		} else {
+			log.Println("Loaded environment .env")
+		}
+	}
+
 	r := gin.Default()
 
 	// Basic endpoints
@@ -29,7 +42,6 @@ func main() {
 	pool, err := db.NewPool(ctx)
 	if err != nil {
 		log.Printf("warning: could not create db pool: %v; some routes will return 500", err)
-		// register routes with stubs that return 500 for DB-dependent endpoints
 		registerStubs(r)
 	} else {
 		// repositories
@@ -39,10 +51,9 @@ func main() {
 
 		// auth service
 		authSvc := service.NewAuthService(staffRepo)
-		// register auth routes
 		handler.RegisterAuthRoutes(r, authSvc)
 
-		// adapter + patient service (reuse existing wiring)
+		// adapter + patient service
 		base := os.Getenv("HOSPITAL_BASE")
 		if base == "" {
 			base = "http://hospital-a.api.co.th"
@@ -50,14 +61,15 @@ func main() {
 		adapterClient, aErr := adapter.NewHospitalAdapter(base, 2*time.Second)
 		if aErr != nil {
 			log.Printf("warning: could not create adapter: %v; patient routes will use stub", aErr)
-			// still register patient route with stub service
 			stub := &dbUnavailableService{err: fmt.Errorf("hospital adapter not available")}
 			handler.RegisterPatientRoutes(r, stub, analyticsRepo)
 		} else {
 			patientSvc := service.NewPatientService(patientRepo, adapterClient)
 			jwtSecret := os.Getenv("JWT_SECRET")
+
 			authGroup := r.Group("/")
 			authGroup.Use(middleware.AuthMiddleware(jwtSecret))
+
 			handler.RegisterPatientRoutes(authGroup, patientSvc, analyticsRepo)
 		}
 	}
@@ -87,18 +99,14 @@ func searchHandler(c *gin.Context) {
 }
 
 func registerStubs(r *gin.Engine) {
-	// simple stub endpoints that respond 500 for DB dependent routes
 	r.POST("/staff/create", func(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "database not available"})
 	})
 	r.POST("/staff/login", func(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "database not available"})
 	})
-	// keep patient route registered earlier in other code
 }
 
-// dbUnavailableService returns errors when DB or adapter not available.
-// dbUnavailableService returns errors when DB or adapter not available.
 type dbUnavailableService struct {
 	err error
 }
