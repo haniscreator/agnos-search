@@ -12,6 +12,7 @@ import (
 	"github.com/haniscreator/agnos-search/internal/adapter"
 	"github.com/haniscreator/agnos-search/internal/db"
 	"github.com/haniscreator/agnos-search/internal/handler"
+	"github.com/haniscreator/agnos-search/internal/middleware"
 	"github.com/haniscreator/agnos-search/internal/repository"
 	"github.com/haniscreator/agnos-search/internal/service"
 )
@@ -53,7 +54,10 @@ func main() {
 			handler.RegisterPatientRoutes(r, stub)
 		} else {
 			patientSvc := service.NewPatientService(patientRepo, adapterClient)
-			handler.RegisterPatientRoutes(r, patientSvc)
+			jwtSecret := os.Getenv("JWT_SECRET")
+			authGroup := r.Group("/")
+			authGroup.Use(middleware.AuthMiddleware(jwtSecret))
+			handler.RegisterPatientRoutes(authGroup, patientSvc)
 		}
 	}
 

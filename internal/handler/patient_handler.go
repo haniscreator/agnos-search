@@ -13,8 +13,10 @@ type PatientService interface {
 	Get(ctx context.Context, identifier string) (*repository.Patient, error)
 }
 
-// RegisterPatientRoutes attaches patient routes to the provided Gin engine.
-func RegisterPatientRoutes(r *gin.Engine, svc PatientService) {
+// RegisterPatientRoutes attaches patient routes to the provided router (Engine or RouterGroup).
+// Using gin.IRouter allows registering routes into a RouterGroup that has middleware applied.
+func RegisterPatientRoutes(r gin.IRouter, svc PatientService) {
+	// Note: gin.IRouter has GET method (Engine and RouterGroup both satisfy it)
 	r.GET("/v1/patient/:id", func(c *gin.Context) {
 		id := c.Param("id")
 		if id == "" {
