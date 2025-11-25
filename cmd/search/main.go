@@ -67,14 +67,18 @@ func main() {
 	authGroup := r.Group("/")
 	authGroup.Use(middleware.AuthMiddleware(jwtSecret))
 
+	// READ + SEARCH patient routes depend on adapter (HIS)
 	if aErr != nil {
-		log.Printf("warning: could not create adapter: %v; patient routes will use stub", aErr)
+		log.Printf("warning: could not create adapter: %v; patient read/search routes will use stub", aErr)
 		stub := &dbUnavailableService{err: fmt.Errorf("hospital adapter not available")}
 		handler.RegisterPatientRoutes(authGroup, stub, analyticsRepo)
 	} else {
 		patientSvc := service.NewPatientService(patientRepo, adapterClient)
 		handler.RegisterPatientRoutes(authGroup, patientSvc, analyticsRepo)
 	}
+
+	// WRITE routes (POST /v1/patients) use repo directly and do NOT depend on adapter
+	handler.RegisterPatientWriteRoutes(authGroup, patientRepo)
 
 	// 5) Start server
 	port := os.Getenv("PORT")
