@@ -8,7 +8,7 @@ echo "=== Integration test: start ==="
 
 # 0) ensure .env exists
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-  echo "0/6: running in CI - writing Docker-friendly .env"
+  echo "0/7: running in CI - writing Docker-friendly .env"
   cat > .env <<EOF
 POSTGRES_USER=agnos
 POSTGRES_PASSWORD=secret
@@ -20,22 +20,40 @@ HOSPITAL_BASE=http://hospital-a.api.co.th
 DATABASE_URL=postgres://agnos:secret@postgres:5432/agnos?sslmode=disable
 EOF
 else
-  echo "0/6: .env already exists - using existing values"
+  echo "0/7: .env already exists - using existing values"
 fi
 
 # 1) start containers
-echo "1/6: docker compose up -d"
+echo "1/7: docker compose up -d"
 docker compose up -d
 
-# 2) apply migrations (idempotent)
-echo "2/6: apply migrations"
+# 2) wait for postgres to be ready
+echo "2/7: wait for postgres to be ready"
+for i in {1..15}; do
+  if docker exec -i agnos_postgres pg_isready -U agnos -d agnos >/dev/null 2>&1; then
+    echo " Postgres is ready"
+    break
+  fi
+  echo " Postgres not ready yet (attempt $i/15); sleeping 2s..."
+  sleep 2
+done
+
+if ! docker exec -i agnos_postgres pg_isready -U agnos -d agnos >/dev/null 2>&1; then
+  echo "ERROR: Postgres did not become ready in time"
+  echo "--- docker logs agnos_postgres (tail 200) ---"
+  docker logs agnos_postgres --tail 200 || true
+  exit 1
+fi
+
+# 3) apply migrations (idempotent)
+echo "3/7: apply migrations"
 docker exec -i agnos_postgres psql -U agnos -d agnos < migrations/001_create_patients.sql
 docker exec -i agnos_postgres psql -U agnos -d agnos < migrations/002_create_staffs.sql
 docker exec -i agnos_postgres psql -U agnos -d agnos < migrations/003_add_hospital_id_to_patients.sql || true
 docker exec -i agnos_postgres psql -U agnos -d agnos < migrations/004_create_search_events.sql || true
 
-# 3) ensure test patient exists (upsert)
-echo "3/6: insert or upsert test patient"
+# 4) ensure test patient exists (upsert)
+echo "4/7: insert or upsert test patient"
 docker exec -i agnos_postgres psql -U agnos -d agnos -c "
 INSERT INTO patients (
   id, patient_hn, national_id, passport_id,
@@ -62,16 +80,16 @@ VALUES (
 ON CONFLICT (id) DO UPDATE SET national_id=EXCLUDED.national_id;
 "
 
-# 4) create staff (idempotent)
-echo "4/6: create staff (idempotent)"
+# 5) create staff (idempotent)
+echo "5/7: create staff (idempotent)"
 CREATE_RESP=$(curl -s -X POST http://localhost:8080/staff/create \
   -H "Content-Type: application/json" \
   -d '{"username":"itest_staff","password":"itest_pass","hospital_id":"HIS-1","display_name":"Integration Test"}')
 
 echo "$CREATE_RESP" | jq . || echo "$CREATE_RESP"
 
-# 5) login and get token
-echo "5/6: login to get token"
+# 6) login and get token
+echo "6/7: login to get token"
 LOGIN_RESP=$(curl -s -X POST http://localhost:8080/staff/login \
   -H "Content-Type: application/json" \
   -d '{"username":"itest_staff","password":"itest_pass","hospital_id":"HIS-1"}')
@@ -87,8 +105,8 @@ if [[ -z "${TOKEN:-}" || "$TOKEN" == "null" ]]; then
 fi
 echo " token obtained"
 
-# 6) run search and assert result
-echo "6/6: perform search and validate response"
+# 7) run search and assert result
+echo "7/7: perform search and validate response"
 RESP=$(curl -s -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
   -d '{"national_id":"N-1234567890","limit":1,"offset":0}' \
   http://localhost:8080/patient/search)
