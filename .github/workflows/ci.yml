@@ -36,16 +36,13 @@ jobs:
     needs: unit-tests
     steps:
       - uses: actions/checkout@v4
-      - name: Start Docker Compose
-        run: docker compose up -d
-      - name: Wait for services
-        run: sleep 5
+
       - name: Run integration script
+      # let the script know it's running in CI so it writes .env correctly
         env:
-          # if you need env values override here
-          JWT_SECRET: ci-secret
-          DATABASE_URL: postgres://agnos:secret@postgres:5432/agnos?sslmode=disable
+          GITHUB_ACTIONS: "true"
         run: ./scripts/integration_test.sh
+
       - name: Shutdown
         if: always()
         run: docker compose down

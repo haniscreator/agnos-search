@@ -20,75 +20,63 @@ import (
 )
 
 func main() {
-	// Load .env if present (useful both locally and in Docker when bind-mounted)
+	// 1) Load .env early
 	if err := godotenv.Load(); err == nil {
 		if os.Getenv("JWT_SECRET") != "" {
 			log.Println("Loaded environment .env (JWT_SECRET detected)")
 		} else {
 			log.Println("Loaded environment .env")
 		}
+	} else {
+		log.Println("No .env file found or could not load .env (this may be fine if env is injected)")
 	}
 
+	// 2) Create DB pool with retries (BLOCK until success or fatal)
+	ctx := context.Background()
+	pool := mustCreateDBPoolWithRetry(ctx)
+
+	// 3) Wire repositories & services
+	staffRepo := repository.NewStaffRepo(pool)
+	patientRepo := repository.NewPatientRepo(pool)
+	analyticsRepo := repository.NewAnalyticsRepo(pool)
+
+	authSvc := service.NewAuthService(staffRepo)
+
+	base := os.Getenv("HOSPITAL_BASE")
+	if base == "" {
+		base = "http://hospital-a.api.co.th"
+	}
+
+	adapterClient, aErr := adapter.NewHospitalAdapter(base, 2*time.Second)
+
+	// 4) Setup Gin AFTER all deps are ready
 	r := gin.Default()
 
-	// Basic endpoints
+	// basic endpoints that don't need DB
 	r.GET("/health", healthHandler)
 	r.GET("/v1/search", searchHandler)
 
-	// Create DB pool with retries (important for CI / fresh docker-compose)
-	ctx := context.Background()
-	var (
-		pool *pgxpool.Pool
-		err  error
-	)
+	// auth routes (staff/create, staff/login) - DB-backed
+	handler.RegisterAuthRoutes(r, authSvc)
 
-	const maxAttempts = 5
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		pool, err = db.NewPool(ctx)
-		if err == nil {
-			log.Printf("database pool created (attempt %d)", attempt)
-			break
-		}
-		log.Printf("database not ready (attempt %d/%d): %v", attempt, maxAttempts, err)
-		time.Sleep(2 * time.Second)
+	// patient routes (behind JWT)
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Println("WARNING: JWT_SECRET is empty; auth middleware will reject all protected endpoints")
 	}
+	authGroup := r.Group("/")
+	authGroup.Use(middleware.AuthMiddleware(jwtSecret))
 
-	if err != nil {
-		log.Printf("warning: could not create db pool after retries: %v; some routes will return 500", err)
-		// register routes with stubs that return 500 for DB-dependent endpoints
-		registerStubs(r)
+	if aErr != nil {
+		log.Printf("warning: could not create adapter: %v; patient routes will use stub", aErr)
+		stub := &dbUnavailableService{err: fmt.Errorf("hospital adapter not available")}
+		handler.RegisterPatientRoutes(authGroup, stub, analyticsRepo)
 	} else {
-		// repositories
-		staffRepo := repository.NewStaffRepo(pool)
-		patientRepo := repository.NewPatientRepo(pool)
-		analyticsRepo := repository.NewAnalyticsRepo(pool)
-
-		// auth service
-		authSvc := service.NewAuthService(staffRepo)
-		// register auth routes
-		handler.RegisterAuthRoutes(r, authSvc)
-
-		// adapter + patient service (reuse existing wiring)
-		base := os.Getenv("HOSPITAL_BASE")
-		if base == "" {
-			base = "http://hospital-a.api.co.th"
-		}
-		adapterClient, aErr := adapter.NewHospitalAdapter(base, 2*time.Second)
-		if aErr != nil {
-			log.Printf("warning: could not create adapter: %v; patient routes will use stub", aErr)
-			// still register patient route with stub service
-			stub := &dbUnavailableService{err: fmt.Errorf("hospital adapter not available")}
-			handler.RegisterPatientRoutes(r, stub, analyticsRepo)
-		} else {
-			patientSvc := service.NewPatientService(patientRepo, adapterClient)
-			jwtSecret := os.Getenv("JWT_SECRET")
-			authGroup := r.Group("/")
-			authGroup.Use(middleware.AuthMiddleware(jwtSecret))
-			handler.RegisterPatientRoutes(authGroup, patientSvc, analyticsRepo)
-		}
+		patientSvc := service.NewPatientService(patientRepo, adapterClient)
+		handler.RegisterPatientRoutes(authGroup, patientSvc, analyticsRepo)
 	}
 
-	// Start server
+	// 5) Start server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -96,6 +84,29 @@ func main() {
 	if err := r.Run(":" + port); err != nil {
 		log.Fatalf("failed to run server: %v", err)
 	}
+}
+
+// mustCreateDBPoolWithRetry blocks until DB is ready or exits fatally.
+func mustCreateDBPoolWithRetry(ctx context.Context) *pgxpool.Pool {
+	const maxAttempts = 5
+
+	var (
+		pool *pgxpool.Pool
+		err  error
+	)
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		pool, err = db.NewPool(ctx)
+		if err == nil {
+			log.Printf("database pool created (attempt %d)", attempt)
+			return pool
+		}
+		log.Printf("database not ready (attempt %d/%d): %v", attempt, maxAttempts, err)
+		time.Sleep(2 * time.Second)
+	}
+
+	log.Fatalf("could not create db pool after %d attempts: %v", maxAttempts, err)
+	return nil // unreachable
 }
 
 func healthHandler(c *gin.Context) {
@@ -110,17 +121,6 @@ func searchHandler(c *gin.Context) {
 	}
 	results := []gin.H{{"type": "patient", "id": "p_1", "name": "Demo Patient"}}
 	c.JSON(200, gin.H{"query": q, "results": results})
-}
-
-func registerStubs(r *gin.Engine) {
-	// simple stub endpoints that respond 500 for DB dependent routes
-	r.POST("/staff/create", func(c *gin.Context) {
-		c.JSON(500, gin.H{"error": "database not available"})
-	})
-	r.POST("/staff/login", func(c *gin.Context) {
-		c.JSON(500, gin.H{"error": "database not available"})
-	})
-	// keep patient route registered earlier in other code
 }
 
 // dbUnavailableService returns errors when DB or adapter not available.
