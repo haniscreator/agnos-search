@@ -43,8 +43,8 @@ jobs:
       - name: Run integration script
         env:
           # if you need env values override here
-          JWT_SECRET: testsecret
-          DATABASE_URL: postgres://agnos:secret@localhost:5432/agnos?sslmode=disable
+          JWT_SECRET: ci-secret
+          DATABASE_URL: postgres://agnos:secret@postgres:5432/agnos?sslmode=disable
         run: ./scripts/integration_test.sh
       - name: Shutdown
         if: always()
