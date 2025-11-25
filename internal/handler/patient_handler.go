@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -28,6 +29,7 @@ func RegisterPatientRoutes(r gin.IRoutes, svc PatientService, analytics reposito
 
 		p, err := svc.Get(c.Request.Context(), id)
 		if err != nil {
+			log.Printf("patient/get error (id=%s): %v", id, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			return
 		}
@@ -81,6 +83,7 @@ func RegisterPatientRoutes(r gin.IRoutes, svc PatientService, analytics reposito
 			Offset      int    `json:"offset"`
 		}
 		if err := c.BindJSON(&req); err != nil {
+			log.Printf("patient/search bind error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
@@ -101,6 +104,10 @@ func RegisterPatientRoutes(r gin.IRoutes, svc PatientService, analytics reposito
 
 		results, total, err := svc.Search(c.Request.Context(), hid, f, req.Limit, req.Offset)
 		if err != nil {
+			log.Printf(
+				"patient/search service error (hospital=%s, filters=%+v, limit=%d, offset=%d): %v",
+				hid, f, req.Limit, req.Offset, err,
+			)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal"})
 			return
 		}
@@ -112,7 +119,12 @@ func RegisterPatientRoutes(r gin.IRoutes, svc PatientService, analytics reposito
 				if staffID, _ok := staffVal.(string); _ok {
 					// logging in a goroutine so it doesn't delay response
 					go func() {
-						_ = analytics.LogSearch(context.Background(), staffID, hid, f, total)
+						if err := analytics.LogSearch(context.Background(), staffID, hid, f, total); err != nil {
+							log.Printf(
+								"patient/search analytics error (staff_id=%s, hospital=%s): %v",
+								staffID, hid, err,
+							)
+						}
 					}()
 				}
 			}
