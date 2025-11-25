@@ -64,19 +64,25 @@ ON CONFLICT (id) DO UPDATE SET national_id=EXCLUDED.national_id;
 
 # 4) create staff (idempotent)
 echo "4/6: create staff (idempotent)"
-curl -s -X POST http://localhost:8080/staff/create \
+CREATE_RESP=$(curl -s -X POST http://localhost:8080/staff/create \
   -H "Content-Type: application/json" \
-  -d '{"username":"itest_staff","password":"itest_pass","hospital_id":"HIS-1","display_name":"Integration Test"}' \
-  | jq .
+  -d '{"username":"itest_staff","password":"itest_pass","hospital_id":"HIS-1","display_name":"Integration Test"}')
+
+echo "$CREATE_RESP" | jq . || echo "$CREATE_RESP"
 
 # 5) login and get token
 echo "5/6: login to get token"
-TOKEN=$(curl -s -X POST http://localhost:8080/staff/login \
+LOGIN_RESP=$(curl -s -X POST http://localhost:8080/staff/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"itest_staff","password":"itest_pass","hospital_id":"HIS-1"}' | jq -r .access_token)
+  -d '{"username":"itest_staff","password":"itest_pass","hospital_id":"HIS-1"}')
+
+TOKEN=$(echo "$LOGIN_RESP" | jq -r .access_token 2>/dev/null || echo "")
 
 if [[ -z "${TOKEN:-}" || "$TOKEN" == "null" ]]; then
   echo "ERROR: failed to obtain token"
+  echo "login response was: $LOGIN_RESP"
+  echo "--- docker logs agnos-search-app-1 (tail 200) ---"
+  docker logs agnos-search-app-1 --tail 200 || true
   exit 2
 fi
 echo " token obtained"
