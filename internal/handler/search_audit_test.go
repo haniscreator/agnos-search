@@ -13,6 +13,7 @@ import (
 	"github.com/haniscreator/agnos-search/internal/repository"
 )
 
+// mockAnalytics implements repository.AnalyticsRepo
 type mockAnalytics struct {
 	called     bool
 	lastCount  int
@@ -21,7 +22,12 @@ type mockAnalytics struct {
 	lastFilter repository.PatientFilters
 }
 
-func (m *mockAnalytics) LogSearch(ctx context.Context, staffID, hospitalID string, filters repository.PatientFilters, resultCount int) error {
+func (m *mockAnalytics) LogSearch(
+	ctx context.Context,
+	staffID, hospitalID string,
+	filters repository.PatientFilters,
+	resultCount int,
+) error {
 	m.called = true
 	m.lastCount = resultCount
 	m.lastStaff = staffID
@@ -32,7 +38,16 @@ func (m *mockAnalytics) LogSearch(ctx context.Context, staffID, hospitalID strin
 
 func TestSearchHandler_AuditLogged(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	r := gin.New()
+
+	// use Default so we get logger + recovery (closer to real app)
+	r := gin.Default()
+
+	// Fake auth context so handler sees staff + hospital (AuthMiddleware is skipped in this unit test)
+	r.Use(func(c *gin.Context) {
+		c.Set("hospital_id", "HIS-1")
+		c.Set("staff_id", "staff-1")
+		c.Next()
+	})
 
 	// mock patient service returning 1 result
 	mockSvc := &mockService{
@@ -42,15 +57,8 @@ func TestSearchHandler_AuditLogged(t *testing.T) {
 		total: 1,
 	}
 
-	// create analytics mock
+	// analytics mock
 	ma := &mockAnalytics{}
-
-	// stub middleware to inject staff_id and hospital_id
-	r.Use(func(c *gin.Context) {
-		c.Set("hospital_id", "HIS-1")
-		c.Set("staff_id", "staff-1")
-		c.Next()
-	})
 
 	// register routes with analytics mock
 	RegisterPatientRoutes(r, mockSvc, ma)
@@ -63,8 +71,8 @@ func TestSearchHandler_AuditLogged(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	// audit should have been invoked (goroutine may have raced, but in unit test it will have run quickly)
-	// to be conservative, check the mock flags directly (it sets them synchronously)
+
+	// analytics should be invoked
 	assert.True(t, ma.called, "analytics LogSearch should be called")
 	assert.Equal(t, 1, ma.lastCount)
 	assert.Equal(t, "staff-1", ma.lastStaff)
