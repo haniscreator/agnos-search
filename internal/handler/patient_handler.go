@@ -2,11 +2,13 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/haniscreator/agnos-search/internal/repository"
 )
@@ -217,13 +219,20 @@ func RegisterPatientWriteRoutes(r gin.IRoutes, writer PatientWriter) {
 		}
 
 		if err := writer.Upsert(c.Request.Context(), p); err != nil {
-			log.Printf("patient/create Upsert ERROR DETAILS: %+v", err)
+			log.Printf("patient/create Upsert error (hospital=%s, national_id=%s, passport_id=%s): %v",
+				hid, req.NationalID, req.PassportID, err)
 
-			// Return error message in response temporarily (for debugging)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "upsert_failed",
-				"details": err.Error(),
-			})
+			// If it's a PG unique violation, return 409 with better message
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				c.JSON(http.StatusConflict, gin.H{
+					"error":  "duplicate_patient",
+					"detail": pgErr.Detail,
+				})
+				return
+			}
+
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "upsert_failed"})
 			return
 		}
 

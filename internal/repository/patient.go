@@ -75,55 +75,51 @@ FROM patients WHERE national_id = $1 OR passport_id = $1 LIMIT 1`, identifier)
 
 // Create inserts a new patient
 func (r *PatientRepo) Create(ctx context.Context, p *Patient) error {
-	// Treat empty identifiers as NULL, so they don't violate UNIQUE indexes
-	var natArg any = p.NationalID
-	if p.NationalID == "" {
-		natArg = nil
+	// Treat empty identifiers as NULL in DB
+	var nationalID any
+	if strings.TrimSpace(p.NationalID) == "" {
+		nationalID = nil
+	} else {
+		nationalID = p.NationalID
 	}
 
-	var passArg any = p.PassportID
-	if p.PassportID == "" {
-		passArg = nil
+	var passportID any
+	if strings.TrimSpace(p.PassportID) == "" {
+		passportID = nil
+	} else {
+		passportID = p.PassportID
 	}
 
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO patients (
-            id, patient_hn, national_id, passport_id,
-            first_name_th, middle_name_th, last_name_th,
-            first_name_en, middle_name_en, last_name_en,
-            date_of_birth, phone_number, email, gender, raw_json, hospital_id
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
-		p.ID,
-		p.PatientHN,
-		natArg,  // may be string or nil
-		passArg, // may be string or nil
-		p.FirstNameTH,
-		p.MiddleNameTH,
-		p.LastNameTH,
-		p.FirstNameEN,
-		p.MiddleNameEN,
-		p.LastNameEN,
-		p.DateOfBirth, // *string (can be nil)
-		p.PhoneNumber,
-		p.Email,
-		p.Gender,
-		p.RawJSON,
-		p.HospitalID,
+			id, patient_hn, national_id, passport_id,
+			first_name_th, middle_name_th, last_name_th,
+			first_name_en, middle_name_en, last_name_en,
+			date_of_birth, phone_number, email, gender, raw_json, hospital_id
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+		p.ID, p.PatientHN, nationalID, passportID,
+		p.FirstNameTH, p.MiddleNameTH, p.LastNameTH,
+		p.FirstNameEN, p.MiddleNameEN, p.LastNameEN,
+		p.DateOfBirth, p.PhoneNumber, p.Email, p.Gender, p.RawJSON, p.HospitalID,
 	)
 	return err
 }
 
 // Upsert inserts a patient or updates an existing record matching national_id or passport_id.
 func (r *PatientRepo) Upsert(ctx context.Context, p *Patient) error {
-	// Treat empty identifiers as NULL for uniqueness
-	var natArg any = p.NationalID
-	if p.NationalID == "" {
-		natArg = nil
+	// Normalize IDs: empty string -> NULL in DB
+	var nationalID any
+	if strings.TrimSpace(p.NationalID) == "" {
+		nationalID = nil
+	} else {
+		nationalID = p.NationalID
 	}
 
-	var passArg any = p.PassportID
-	if p.PassportID == "" {
-		passArg = nil
+	var passportID any
+	if strings.TrimSpace(p.PassportID) == "" {
+		passportID = nil
+	} else {
+		passportID = p.PassportID
 	}
 
 	cols := []string{
@@ -133,32 +129,21 @@ func (r *PatientRepo) Upsert(ctx context.Context, p *Patient) error {
 		"date_of_birth", "phone_number", "email", "gender", "raw_json", "hospital_id",
 	}
 	args := []any{
-		p.ID,
-		p.PatientHN,
-		natArg,  // may be string or nil
-		passArg, // may be string or nil
-		p.FirstNameTH,
-		p.MiddleNameTH,
-		p.LastNameTH,
-		p.FirstNameEN,
-		p.MiddleNameEN,
-		p.LastNameEN,
-		p.DateOfBirth, // *string (can be nil)
-		p.PhoneNumber,
-		p.Email,
-		p.Gender,
-		p.RawJSON,
-		p.HospitalID,
+		p.ID, p.PatientHN, nationalID, passportID,
+		p.FirstNameTH, p.MiddleNameTH, p.LastNameTH,
+		p.FirstNameEN, p.MiddleNameEN, p.LastNameEN,
+		p.DateOfBirth, p.PhoneNumber, p.Email, p.Gender, p.RawJSON, p.HospitalID,
 	}
 
 	colsStr := strings.Join(cols, ",")
+	// placeholders $1,$2,... up to len(args)
 	ph := make([]string, len(args))
 	for i := range ph {
 		ph[i] = fmt.Sprintf("$%d", i+1)
 	}
 	placeholders := strings.Join(ph, ",")
 
-	if p.NationalID != "" {
+	if strings.TrimSpace(p.NationalID) != "" {
 		finalSQL := fmt.Sprintf(
 			"INSERT INTO patients (%s) VALUES (%s) "+
 				"ON CONFLICT (national_id) DO UPDATE SET "+
@@ -172,7 +157,7 @@ func (r *PatientRepo) Upsert(ctx context.Context, p *Patient) error {
 		)
 		_, err := r.pool.Exec(ctx, finalSQL, args...)
 		return err
-	} else if p.PassportID != "" {
+	} else if strings.TrimSpace(p.PassportID) != "" {
 		finalSQL := fmt.Sprintf(
 			"INSERT INTO patients (%s) VALUES (%s) "+
 				"ON CONFLICT (passport_id) DO UPDATE SET "+
@@ -188,6 +173,7 @@ func (r *PatientRepo) Upsert(ctx context.Context, p *Patient) error {
 		return err
 	}
 
+	// no national_id / passport_id => plain insert
 	return r.Create(ctx, p)
 }
 
@@ -198,12 +184,13 @@ func scanPatientRow(row pgx.Row) (*Patient, error) {
 	var raw []byte
 	var middleTH sql.NullString
 	var middleEN sql.NullString
+	var passport sql.NullString
 
 	err := row.Scan(
 		&p.ID,
 		&p.PatientHN,
 		&p.NationalID,
-		&p.PassportID,
+		&passport,
 		&p.FirstNameTH,
 		&middleTH,
 		&p.LastNameTH,
@@ -231,6 +218,7 @@ func scanPatientRow(row pgx.Row) (*Patient, error) {
 
 	p.MiddleNameTH = middleTH.String
 	p.MiddleNameEN = middleEN.String
+	p.PassportID = passport.String
 	p.RawJSON = raw
 
 	return &p, nil
@@ -333,12 +321,13 @@ func (r *PatientRepo) SearchPatients(ctx context.Context, hospitalID string, f P
 		var raw []byte
 		var middleTH sql.NullString
 		var middleEN sql.NullString
+		var passport sql.NullString
 
 		if err := rows.Scan(
 			&p.ID,
 			&p.PatientHN,
 			&p.NationalID,
-			&p.PassportID,
+			&passport,
 			&p.FirstNameTH,
 			&middleTH,
 			&p.LastNameTH,
@@ -359,6 +348,7 @@ func (r *PatientRepo) SearchPatients(ctx context.Context, hospitalID string, f P
 		}
 		p.MiddleNameTH = middleTH.String
 		p.MiddleNameEN = middleEN.String
+		p.PassportID = passport.String
 		p.RawJSON = raw
 
 		results = append(results, &p)
