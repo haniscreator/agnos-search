@@ -105,23 +105,41 @@ if [[ -z "${TOKEN:-}" || "$TOKEN" == "null" ]]; then
 fi
 echo " token obtained"
 
-# 7) run search and assert result
+# 7/7: run search and assert result
 echo "7/7: perform search and validate response"
-RESP=$(curl -s -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+RESP=$(curl -s -w "\n%{http_code}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
   -d '{"national_id":"N-1234567890","limit":1,"offset":0}' \
   http://localhost:8080/patient/search)
 
-echo "response: $RESP"
+# split body + status
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -n1)
+
+echo "status: $STATUS"
+echo "response: $BODY"
+
+if [[ "$STATUS" != "200" ]]; then
+  echo "ERROR: /patient/search returned HTTP $STATUS"
+  echo "--- docker logs agnos-search-app-1 (tail 200) ---"
+  docker logs agnos-search-app-1 --tail 200 || true
+  echo "--- docker logs agnos_postgres (tail 50) ---"
+  docker logs agnos_postgres --tail 50 || true
+  exit 3
+fi
 
 # simple jq-based assertions:
-COUNT=$(echo "$RESP" | jq -r '.count // -1')
+COUNT=$(echo "$BODY" | jq -r '.count // -1')
 if [[ "$COUNT" -lt 1 ]]; then
   echo "ERROR: expected at least 1 result, got count=$COUNT"
+  echo "--- docker logs agnos-search-app-1 (tail 200) ---"
+  docker logs agnos-search-app-1 --tail 200 || true
   exit 3
 fi
 
 # check patient id present in the first result
-FIRST_ID=$(echo "$RESP" | jq -r '.results[0].ID // .results[0].id // empty')
+FIRST_ID=$(echo "$BODY" | jq -r '.results[0].ID // .results[0].id // empty')
 if [[ -z "$FIRST_ID" ]]; then
   echo "ERROR: first result missing ID"
   exit 4
