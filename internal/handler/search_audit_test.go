@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -39,10 +40,10 @@ func (m *mockAnalytics) LogSearch(
 func TestSearchHandler_AuditLogged(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	// use Default so we get logger + recovery (closer to real app)
-	r := gin.Default()
+	// router (no auth middleware, we fake context)
+	r := gin.New()
 
-	// Fake auth context so handler sees staff + hospital (AuthMiddleware is skipped in this unit test)
+	// Fake auth context so handler sees staff + hospital
 	r.Use(func(c *gin.Context) {
 		c.Set("hospital_id", "HIS-1")
 		c.Set("staff_id", "staff-1")
@@ -72,7 +73,11 @@ func TestSearchHandler_AuditLogged(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	// analytics should be invoked
+	// 🔁 Wait a bit for async LogSearch() goroutine to run
+	for i := 0; i < 50 && !ma.called; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	assert.True(t, ma.called, "analytics LogSearch should be called")
 	assert.Equal(t, 1, ma.lastCount)
 	assert.Equal(t, "staff-1", ma.lastStaff)
