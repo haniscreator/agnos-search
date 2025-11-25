@@ -6,22 +6,38 @@ cd "$ROOT"
 
 echo "=== Integration test: start ==="
 
-# 0) ensure .env exists (needed in CI where .env is not committed)
-if [[ ! -f .env ]]; then
-  echo "0/6: .env not found - creating default for CI"
+# 0) ensure .env exists / is correct
+if [[ "${CI:-}" == "true" ]]; then
+  echo "0/6: running in CI - writing Docker-friendly .env"
   cat > .env <<'EOF'
 POSTGRES_USER=agnos
 POSTGRES_PASSWORD=secret
 POSTGRES_DB=agnos
 
 PORT=8080
-JWT_SECRET=change-me-in-real-env
+JWT_SECRET=change-me-in-ci
+HOSPITAL_BASE=http://hospital-a.api.co.th
+
+# IMPORTANT: host is "postgres" (service name), NOT localhost
+DATABASE_URL=postgres://agnos:secret@postgres:5432/agnos?sslmode=disable
+EOF
+else
+  if [[ ! -f .env ]]; then
+    echo "0/6: .env not found - creating default for local/dev"
+    cat > .env <<'EOF'
+POSTGRES_USER=agnos
+POSTGRES_PASSWORD=secret
+POSTGRES_DB=agnos
+
+PORT=8080
+JWT_SECRET=change-me-in-local
 HOSPITAL_BASE=http://hospital-a.api.co.th
 
 DATABASE_URL=postgres://agnos:secret@postgres:5432/agnos?sslmode=disable
 EOF
-else
-  echo "0/6: .env already exists - using existing values"
+  else
+    echo "0/6: .env already exists - using existing values"
+  fi
 fi
 
 # 1) start containers
