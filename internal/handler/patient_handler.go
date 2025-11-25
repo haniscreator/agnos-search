@@ -79,11 +79,14 @@ func RegisterPatientRoutes(r gin.IRoutes, svc PatientService, analytics reposito
 		}
 
 		var req struct {
+			PatientHN   string `json:"patient_hn"`
 			NationalID  string `json:"national_id"`
 			PassportID  string `json:"passport_id"`
-			FirstName   string `json:"first_name"`
+			FirstName   string `json:"first_name"`    // legacy
+			FirstNameEN string `json:"first_name_en"` // preferred
 			MiddleName  string `json:"middle_name"`
-			LastName    string `json:"last_name"`
+			LastName    string `json:"last_name"`    // legacy
+			LastNameEN  string `json:"last_name_en"` // preferred
 			DateOfBirth string `json:"date_of_birth"`
 			PhoneNumber string `json:"phone_number"`
 			Email       string `json:"email"`
@@ -99,12 +102,23 @@ func RegisterPatientRoutes(r gin.IRoutes, svc PatientService, analytics reposito
 			req.Limit = 10
 		}
 
+		// Prefer *_en if provided; fall back to generic
+		effectiveFirstName := req.FirstName
+		if effectiveFirstName == "" {
+			effectiveFirstName = req.FirstNameEN
+		}
+		effectiveLastName := req.LastName
+		if effectiveLastName == "" {
+			effectiveLastName = req.LastNameEN
+		}
+
 		f := repository.PatientFilters{
+			PatientHN:   req.PatientHN,
 			NationalID:  req.NationalID,
 			PassportID:  req.PassportID,
-			FirstName:   req.FirstName,
+			FirstName:   effectiveFirstName,
 			MiddleName:  req.MiddleName,
-			LastName:    req.LastName,
+			LastName:    effectiveLastName,
 			DateOfBirth: req.DateOfBirth,
 			PhoneNumber: req.PhoneNumber,
 			Email:       req.Email,

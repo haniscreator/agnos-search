@@ -226,6 +226,7 @@ func scanPatientRow(row pgx.Row) (*Patient, error) {
 
 // Filters for searching patients.
 type PatientFilters struct {
+	PatientHN   string
 	NationalID  string
 	PassportID  string
 	FirstName   string
@@ -256,24 +257,33 @@ func (r *PatientRepo) SearchPatients(ctx context.Context, hospitalID string, f P
 		idx++
 	}
 
+	// ✅ support search by HN
+	if f.PatientHN != "" {
+		addEq("patient_hn", f.PatientHN)
+	}
+
 	if f.NationalID != "" {
 		addEq("national_id", f.NationalID)
 	}
 	if f.PassportID != "" {
 		addEq("passport_id", f.PassportID)
 	}
+
+	// ✅ FirstName as EN only
 	if f.FirstName != "" {
 		addLike("first_name_en", f.FirstName)
-		addLike("first_name_th", f.FirstName)
 	}
+
+	// ✅ MiddleName as EN only
 	if f.MiddleName != "" {
 		addLike("middle_name_en", f.MiddleName)
-		addLike("middle_name_th", f.MiddleName)
 	}
+
+	// ✅ LastName as EN only
 	if f.LastName != "" {
 		addLike("last_name_en", f.LastName)
-		addLike("last_name_th", f.LastName)
 	}
+
 	if f.DateOfBirth != "" {
 		addEq("date_of_birth", f.DateOfBirth)
 	}
