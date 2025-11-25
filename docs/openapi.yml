@@ -1,0 +1,448 @@
+openapi: 3.0.3
+info:
+  title: Agnos Search API
+  version: 1.0.0
+  description: |
+    Hospital middleware API for staff auth, patient search, and audit logging.
+    Backed by Go (Gin) + Postgres, with JWT-based auth and hospital scoping.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Health
+  - name: Utility
+  - name: Staff
+  - name: Patients
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Simple liveness probe for the service.
+      responses:
+        '200':
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /v1/search:
+    get:
+      tags: [Utility]
+      summary: Demo search endpoint
+      description: Simple demo endpoint, not part of the core hospital API.
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+          description: Search query text.
+      responses:
+        '200':
+          description: Demo search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                    example: test
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                          example: patient
+                        id:
+                          type: string
+                          example: p_1
+                        name:
+                          type: string
+                          example: Demo Patient
+        '400':
+          description: Missing q parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /staff/create:
+    post:
+      tags: [Staff]
+      summary: Create staff user
+      description: |
+        Create a staff account for a hospital. This is intentionally public
+        (bootstrap-style) and not protected by JWT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffCreateRequest'
+      responses:
+        '201':
+          description: Staff user created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Staff'
+        '400':
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Username already exists for that hospital
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /staff/login:
+    post:
+      tags: [Staff]
+      summary: Staff login
+      description: |
+        Login a staff member and obtain a JWT access token.
+        The token encodes the hospital_id and staff_id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffLoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffLoginResponse'
+        '400':
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid username/password/hospital
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/patient/{id}:
+    get:
+      tags: [Patients]
+      summary: Get patient by ID
+      description: |
+        Fetch a single patient by internal UUID, scoped by hospital.
+        If the patient belongs to another hospital, a 404 is returned.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: Internal patient UUID.
+      responses:
+        '200':
+          description: Patient found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+        '401':
+          description: Missing or invalid token / hospital in token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Patient not found or not in caller's hospital
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /patient/search:
+    post:
+      tags: [Patients]
+      summary: Search patients
+      description: |
+        Search patients by filters within the hospital contained in the JWT.
+        Results are always scoped to the hospital_id from the access token.
+        Successful calls are also recorded in the search_events audit table.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatientSearchRequest'
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientSearchResponse'
+        '400':
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token / hospital in token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: internal
+
+    StaffCreateRequest:
+      type: object
+      required:
+        - username
+        - password
+        - hospital_id
+      properties:
+        username:
+          type: string
+          example: staff1
+        password:
+          type: string
+          format: password
+          example: password123
+        hospital_id:
+          type: string
+          example: HIS-1
+        display_name:
+          type: string
+          example: User 1
+
+    Staff:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 477880aa-ca61-4ed4-a8f4-c89176fee4f7
+        username:
+          type: string
+          example: staff1
+        display_name:
+          type: string
+          example: User 1
+        hospital_id:
+          type: string
+          example: HIS-1
+        role:
+          type: string
+          example: staff
+
+    StaffLoginRequest:
+      type: object
+      required:
+        - username
+        - password
+        - hospital_id
+      properties:
+        username:
+          type: string
+          example: staff1
+        password:
+          type: string
+          format: password
+          example: password123
+        hospital_id:
+          type: string
+          example: HIS-1
+
+    StaffLoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: JWT access token
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          format: int64
+          example: 3600
+
+    Patient:
+      type: object
+      description: Normalized patient model stored in DB.
+      properties:
+        ID:
+          type: string
+          format: uuid
+          example: 11111111-1111-1111-1111-111111111111
+        PatientHN:
+          type: string
+          example: HN-001
+        NationalID:
+          type: string
+          example: N-1234567890
+        PassportID:
+          type: string
+          example: P-ABC1234
+        FirstNameTH:
+          type: string
+          example: สมชาย
+        MiddleNameTH:
+          type: string
+          example: ""
+        LastNameTH:
+          type: string
+          example: ใจดี
+        FirstNameEN:
+          type: string
+          example: Somchai
+        MiddleNameEN:
+          type: string
+          example: ""
+        LastNameEN:
+          type: string
+          example: Jaidee
+        DateOfBirth:
+          type: string
+          format: date
+          example: 1990-01-01
+        PhoneNumber:
+          type: string
+          example: 0812345678
+        Email:
+          type: string
+          format: email
+          example: somchai@example.com
+        Gender:
+          type: string
+          example: M
+        RawJSON:
+          type: string
+          description: Base64-encoded raw JSON blob
+          example: eyJub3RlIjogInNlZWRlZCBmb3IgdGVzdCIsICJzb3VyY2UiOiAiaG9zcGl0YWwtYSJ9
+        HospitalID:
+          type: string
+          example: HIS-1
+
+    PatientSearchRequest:
+      type: object
+      properties:
+        national_id:
+          type: string
+          example: N-1234567890
+        passport_id:
+          type: string
+          example: P-ABC1234
+        first_name:
+          type: string
+          example: Somchai
+        middle_name:
+          type: string
+          example: ""
+        last_name:
+          type: string
+          example: Jaidee
+        date_of_birth:
+          type: string
+          format: date
+          example: 1990-01-01
+        phone_number:
+          type: string
+          example: 0812345678
+        email:
+          type: string
+          format: email
+          example: somchai@example.com
+        limit:
+          type: integer
+          format: int32
+          default: 10
+          example: 10
+        offset:
+          type: integer
+          format: int32
+          default: 0
+          example: 0
+
+    PatientSearchResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+          format: int32
+          example: 1
+        limit:
+          type: integer
+          format: int32
+          example: 10
+        offset:
+          type: integer
+          format: int32
+          example: 0
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Patient'
