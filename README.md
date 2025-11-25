@@ -1,4 +1,5 @@
 # Agnos Search
+[![CI](https://github.com/haniscreator/agnos-search/actions/workflows/ci.yml/badge.svg)](https://github.com/haniscreator/agnos-search/actions/workflows/ci.yml)
 
 End-to-end guide to run, test, and verify the Agnos Search service locally using Docker Compose, with proper environment variables, migrations, authentication, and audit logging.
 
@@ -137,6 +138,41 @@ Expected output is similar to:
 { ... patient result ... }
 verify audit:
 id | staff_id | hospital_id | result_count | created_at
+```
+
+## ✅ 11. CI Integration Test (GitHub Actions)
+This project includes a full Docker-based integration test that runs automatically in GitHub Actions using:
+```bash
+./scripts/integration_test.sh
+```
+The integration test simulates the entire workflow inside CI:
+1. Creates a .env optimized for Docker-in-CI
+2. Starts Postgres + the Go API via docker compose
+3. Applies migrations
+4. Seeds a test patient
+5. Creates staff user
+6. Performs login (JWT)
+7. Runs /patient/search
+8. Validates the response and audit logs
+9. Fails CI if any step fails
+
+📌 Run integration test locally (optional)
+You can run the same script on your machine:
+```bash
+./scripts/integration_test.sh
+```
+
+This lets you reproduce CI failures locally.
+
+📄 View CI workflow
+GitHub Actions workflow file:
+```bash
+.github/workflows/ci.yml
+```
+Live build badge:
+```bash
+[![CI](https://github.com/haniscreator/agnos-search/actions/workflows/ci.yml/badge.svg)](https://github.com/haniscreator/agnos-search/actions/workflows/ci.yml)
+
 ```
 
 ## 📁 Folder Structure
