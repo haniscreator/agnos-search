@@ -91,10 +91,6 @@ func (r *PatientRepo) Create(ctx context.Context, p *Patient) error {
 }
 
 // Upsert inserts a patient or updates an existing record matching national_id or passport_id.
-// Strategy:
-//   - If national_id present -> ON CONFLICT (national_id) DO UPDATE ...
-//   - Else if passport_id present -> ON CONFLICT (passport_id) DO UPDATE ...
-//   - Else fallback to Create()
 func (r *PatientRepo) Upsert(ctx context.Context, p *Patient) error {
 	cols := []string{
 		"id", "patient_hn", "national_id", "passport_id",
@@ -155,6 +151,8 @@ func scanPatientRow(row pgx.Row) (*Patient, error) {
 	var p Patient
 	var dob sql.NullTime
 	var raw []byte
+	var middleTH sql.NullString
+	var middleEN sql.NullString
 
 	err := row.Scan(
 		&p.ID,
@@ -162,10 +160,10 @@ func scanPatientRow(row pgx.Row) (*Patient, error) {
 		&p.NationalID,
 		&p.PassportID,
 		&p.FirstNameTH,
-		&p.MiddleNameTH,
+		&middleTH,
 		&p.LastNameTH,
 		&p.FirstNameEN,
-		&p.MiddleNameEN,
+		&middleEN,
 		&p.LastNameEN,
 		&dob,
 		&p.PhoneNumber,
@@ -180,11 +178,16 @@ func scanPatientRow(row pgx.Row) (*Patient, error) {
 		}
 		return nil, err
 	}
+
 	if dob.Valid {
 		str := dob.Time.Format("2006-01-02")
 		p.DateOfBirth = &str
 	}
+
+	p.MiddleNameTH = middleTH.String
+	p.MiddleNameEN = middleEN.String
 	p.RawJSON = raw
+
 	return &p, nil
 }
 
@@ -283,16 +286,19 @@ func (r *PatientRepo) SearchPatients(ctx context.Context, hospitalID string, f P
 		var p Patient
 		var dob sql.NullTime
 		var raw []byte
+		var middleTH sql.NullString
+		var middleEN sql.NullString
+
 		if err := rows.Scan(
 			&p.ID,
 			&p.PatientHN,
 			&p.NationalID,
 			&p.PassportID,
 			&p.FirstNameTH,
-			&p.MiddleNameTH,
+			&middleTH,
 			&p.LastNameTH,
 			&p.FirstNameEN,
-			&p.MiddleNameEN,
+			&middleEN,
 			&p.LastNameEN,
 			&dob,
 			&p.PhoneNumber,
@@ -306,7 +312,10 @@ func (r *PatientRepo) SearchPatients(ctx context.Context, hospitalID string, f P
 			str := dob.Time.Format("2006-01-02")
 			p.DateOfBirth = &str
 		}
+		p.MiddleNameTH = middleTH.String
+		p.MiddleNameEN = middleEN.String
 		p.RawJSON = raw
+
 		results = append(results, &p)
 	}
 	if err := rows.Err(); err != nil {
