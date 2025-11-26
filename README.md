@@ -20,52 +20,33 @@ End-to-end guide to run, test, and verify the Agnos Search service locally using
 - openssl (optional — for generating JWT secret)
 
 ## 📦 2. Environment Setup
+```bash
+git clone https://github.com/haniscreator/agnos-search.git
+cd agnos-search
+```
 This project uses .env and .env.example.
 .env.example
 ```bash
-# --- Postgres ---
-POSTGRES_USER=agnos
-POSTGRES_PASSWORD=secret
-POSTGRES_DB=agnos
-
-# --- Application ---
-PORT=8080
-JWT_SECRET=your-secret-here
-HOSPITAL_BASE=http://hospital-a.api.co.th
-
-# DATABASE_URL for the app container
-DATABASE_URL=postgres://agnos:secret@postgres:5432/agnos?sslmode=disable
+cp .env.example .env
+# Edit .env → set JWT_SECRET to any non-empty value (ci-secrect)
 ```
 
 ## 🐳 3. Start the System (Docker Compose)
-```bash
-docker compose up -d
-```
 To rebuild (when Golang code changes):
 ```bash
 docker compose down
 docker compose build --no-cache
 docker compose up -d
 ```
-Check logs:
+## ⛑️ 4. API Health Check
 ```bash
-docker logs -f agnos-search-app-1
+curl http://localhost:8080/health
 ```
-You should see:
+Expected response:
 ```bash
-Loaded environment .env (JWT_SECRET detected)
-```
-
-## 🗄️ 4. Run Database Migrations
-Each SQL file in migrations/ should be applied manually.
-
-Example:
-```bash
-docker exec -i agnos_postgres psql -U agnos -d agnos < migrations/001_create_patients.sql
-```
-Verify a migration:
-```bash
-docker exec -it agnos_postgres psql -U agnos -d agnos -c "\d+ search_events"
+{
+  "status": "ok"
+}
 ```
 
 ## 👤 5. Create Staff User
@@ -164,37 +145,36 @@ You can run the same script on your machine:
 
 This lets you reproduce CI failures locally.
 
-📄 View CI workflow
+## 🔄 12. View CI workflow
 GitHub Actions workflow file:
 ```bash
 .github/workflows/ci.yml
 ```
-Live build badge:
-```bash
-[![CI](https://github.com/haniscreator/agnos-search/actions/workflows/ci.yml/badge.svg)](https://github.com/haniscreator/agnos-search/actions/workflows/ci.yml)
 
-```
 
-## 📁 Folder Structure
+## 📁 13. Folder Structure
 ```bash
-agnos-search/
+/ (root)
 ├── cmd/
-│   └── search/        # main.go entrypoint
-├── internal/
-│   ├── adapter/       # external hospital API
-│   ├── db/            # pgx pool
-│   ├── handler/       # gin handlers
-│   ├── middleware/    # JWT auth
-│   ├── repository/    # data layer
-│   ├── service/       # business logic
-│   └── ...
-├── migrations/        # SQL migrations
-├── scripts/
-│   └── smoke.sh       # E2E validation
-├── docker-compose.yml
-├── .env.example
-├── .env (ignored)
-└── README.md
+│    └── search/
+│         └── main.go           # Application entry point (starts the server)
+│
+├── internal/                   # Private application code (cannot be imported externally)
+│    ├── adapter/               # External adapters (e.g., 3rd party APIs, external clients)
+│    ├── db/
+│    │    └── db.go             # Database connection setup and configuration
+│    ├── handler/               # HTTP Handlers (Controllers) - handles requests & responses
+│    │    ├── auth_handler.go
+│    │    └── patient_handler.go
+│    ├── middleware/            # HTTP Middleware (e.g., logging, authentication checks)
+│    ├── repository/            # Data Access Layer - interacts directly with the database
+│    └── service/               # Business Logic Layer - core logic between handlers and repositories
+│         ├── auth_service.go
+│         └── patient_service.go
+│
+├── migrations/                 # SQL migration files for database schema changes
+├── go.mod                      # Go module definition and dependencies
+└── go.sum                      # Checksums for dependencies (ensures consistency)
 ```
 
 ## 📝 Notes
