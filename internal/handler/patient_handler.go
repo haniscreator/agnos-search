@@ -27,6 +27,97 @@ type PatientWriter interface {
 // RegisterPatientRoutes registers patient-related routes on the provided Gin router.
 // Note: analytics can be nil if audit logging is not desired.
 func RegisterPatientRoutes(r gin.IRoutes, svc PatientService, analytics repository.AnalyticsRepo) {
+	// GET /v1/patient/search/:id
+	// id can be either national_id or passport_id.
+	r.GET("/v1/patient/search/:id", func(c *gin.Context) {
+		identifier := c.Param("id")
+		if identifier == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
+			return
+		}
+
+		// Hospital scoping from JWT
+		hv, ok := c.Get("hospital_id")
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing hospital in token"})
+			return
+		}
+		hid, ok := hv.(string)
+		if !ok || hid == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid hospital in token"})
+			return
+		}
+
+		limit := 1
+		offset := 0
+
+		var (
+			results     []*repository.Patient
+			total       int
+			err         error
+			filtersUsed repository.PatientFilters
+		)
+
+		// 1) Try as national_id
+		fNat := repository.PatientFilters{
+			NationalID: identifier,
+		}
+		results, total, err = svc.Search(c.Request.Context(), hid, fNat, limit, offset)
+		if err != nil {
+			log.Printf(
+				"patient/search-by-id service error (hospital=%s, identifier=%s as national_id): %v",
+				hid, identifier, err,
+			)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal"})
+			return
+		}
+
+		if total > 0 && len(results) > 0 {
+			filtersUsed = fNat
+		} else {
+			// 2) If no result, try as passport_id
+			fPass := repository.PatientFilters{
+				PassportID: identifier,
+			}
+			results, total, err = svc.Search(c.Request.Context(), hid, fPass, limit, offset)
+			if err != nil {
+				log.Printf(
+					"patient/search-by-id service error (hospital=%s, identifier=%s as passport_id): %v",
+					hid, identifier, err,
+				)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal"})
+				return
+			}
+			if total > 0 && len(results) > 0 {
+				filtersUsed = fPass
+			}
+		}
+
+		if total == 0 || len(results) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+
+		// Log audit event if analytics repo provided (same style as POST /patient/search).
+		if analytics != nil {
+			if staffVal, ok := c.Get("staff_id"); ok {
+				if staffID, _ok := staffVal.(string); _ok {
+					go func() {
+						if err := analytics.LogSearch(context.Background(), staffID, hid, filtersUsed, total); err != nil {
+							log.Printf(
+								"patient/search-by-id analytics error (staff_id=%s, hospital=%s): %v",
+								staffID, hid, err,
+							)
+						}
+					}()
+				}
+			}
+		}
+
+		// Return the first matched patient
+		c.JSON(http.StatusOK, results[0])
+	})
+
 	// GET /v1/patient/:id
 	r.GET("/v1/patient/:id", func(c *gin.Context) {
 		id := c.Param("id")
